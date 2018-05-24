@@ -1,16 +1,7 @@
 package femr.ui.controllers;
 
-import com.avaje.ebean.ExpressionList;
-import com.avaje.ebean.Query;
-import femr.business.helpers.QueryProvider;
-import femr.business.services.core.IVitalService;
-import femr.common.models.VitalItem;
-import femr.data.IDataModelMapper;
-import femr.data.daos.IRepository;
-import femr.data.models.core.ISystemSetting;
-import femr.data.models.mysql.SystemSetting;
-
 import com.google.inject.Inject;
+import controllers.AssetsFinder;
 import femr.business.services.core.*;
 import femr.common.dtos.CurrentUser;
 import femr.common.dtos.ServiceResponse;
@@ -43,6 +34,7 @@ import java.util.stream.Collectors;
 @AllowedRoles({Roles.PHYSICIAN, Roles.PHARMACIST, Roles.NURSE})
 public class MedicalController extends Controller {
 
+    private final AssetsFinder assetsFinder;
     private final FormFactory formFactory;
     private final ITabService tabService;
     private final IEncounterService encounterService;
@@ -52,19 +44,19 @@ public class MedicalController extends Controller {
     private final ISearchService searchService;
     private final IVitalService vitalService;
     private final FieldHelper fieldHelper;
-    private final IRepository<ISystemSetting> systemSettingRepository;
 
     @Inject
-    public MedicalController(FormFactory formFactory,
+    public MedicalController(AssetsFinder assetsFinder,
+                             FormFactory formFactory,
                              ITabService tabService,
                              IEncounterService encounterService,
                              IMedicationService medicationService,
                              IPhotoService photoService,
                              ISessionService sessionService,
                              ISearchService searchService,
-                             IVitalService vitalService,
-                             IRepository<ISystemSetting> systemSettingRepository) {
+                             IVitalService vitalService) {
 
+        this.assetsFinder = assetsFinder;
         this.formFactory = formFactory;
         this.tabService = tabService;
         this.encounterService = encounterService;
@@ -74,13 +66,12 @@ public class MedicalController extends Controller {
         this.photoService = photoService;
         this.vitalService = vitalService;
         this.fieldHelper = new FieldHelper();
-        this.systemSettingRepository = systemSettingRepository;
     }
 
     public Result indexGet() {
         CurrentUser currentUserSession = sessionService.retrieveCurrentUserSession();
 
-        return ok(index.render(currentUserSession, null, 0));
+        return ok(index.render(currentUserSession, null, 0, assetsFinder));
     }
 
     public Result indexPost() {
@@ -90,7 +81,7 @@ public class MedicalController extends Controller {
         ServiceResponse<Integer> idQueryStringResponse = searchService.parseIdFromQueryString(queryString_id);
         if (idQueryStringResponse.hasErrors()) {
 
-            return ok(index.render(currentUserSession, idQueryStringResponse.getErrors().get(""), 0));
+            return ok(index.render(currentUserSession, idQueryStringResponse.getErrors().get(""), 0, assetsFinder));
         }
         Integer patientId = idQueryStringResponse.getResponseObject();
 
@@ -98,14 +89,14 @@ public class MedicalController extends Controller {
         ServiceResponse<PatientEncounterItem> patientEncounterItemServiceResponse = searchService.retrieveRecentPatientEncounterItemByPatientId(patientId);
         if (patientEncounterItemServiceResponse.hasErrors()) {
 
-            return ok(index.render(currentUserSession, patientEncounterItemServiceResponse.getErrors().get(""), 0));
+            return ok(index.render(currentUserSession, patientEncounterItemServiceResponse.getErrors().get(""), 0, assetsFinder));
         }
         PatientEncounterItem patientEncounterItem = patientEncounterItemServiceResponse.getResponseObject();
 
         //check for encounter closed
         if (patientEncounterItem.getIsClosed()) {
 
-            return ok(index.render(currentUserSession, "That patient's encounter has been closed.", 0));
+            return ok(index.render(currentUserSession, "That patient's encounter has been closed.", 0, assetsFinder));
         }
 
         //check if the doc has already seen the patient today
@@ -117,7 +108,7 @@ public class MedicalController extends Controller {
 
             if (userItemServiceResponse.getResponseObject() != null) {
 
-                return ok(index.render(currentUserSession, "That patient has already been seen today. Would you like to edit their encounter?", patientId));
+                return ok(index.render(currentUserSession, "That patient has already been seen today. Would you like to edit their encounter?", patientId, assetsFinder));
             }
         }
 
@@ -143,7 +134,7 @@ public class MedicalController extends Controller {
         //verify encounter is still open
         if (patientEncounter.getIsClosed()) {
 
-            return ok(index.render(currentUserSession, "That patient's encounter has been closed.", 0));
+            return ok(index.render(currentUserSession, "That patient's encounter has been closed.", 0, assetsFinder));
         }
 
         //get patient
@@ -247,7 +238,7 @@ public class MedicalController extends Controller {
         //Alaa Serhan
         VitalMultiMap vitalMultiMap = vitalMapResponse.getResponseObject();
 
-        return ok(edit.render(currentUserSession, vitalMultiMap, viewModelGet));
+        return ok(edit.render(currentUserSession, vitalMultiMap, viewModelGet, assetsFinder));
     }
 
     /**
@@ -415,7 +406,7 @@ public class MedicalController extends Controller {
 
         String message = "Patient information for " + patientItem.getFirstName() + " " + patientItem.getLastName() + " (id: " + patientItem.getId() + ") was saved successfully.";
 
-        return ok(index.render(currentUserSession, message, 0));
+        return ok(index.render(currentUserSession, message, 0, assetsFinder));
     }
 
     public Result updateVitalsPost(int id) {
@@ -482,7 +473,7 @@ public class MedicalController extends Controller {
         ServiceResponse<SettingItem> response = searchService.retrieveSystemSettings();
         viewModelGet.setSettings(response.getResponseObject());
 
-        return ok(newVitals.render(viewModelGet));
+        return ok(newVitals.render(viewModelGet, assetsFinder));
     }
 
     public Result listVitalsGet(Integer id) {
@@ -504,7 +495,7 @@ public class MedicalController extends Controller {
         //Alaa Serhan
         VitalMultiMap vitalMap = vitalMultiMapServiceResponse.getResponseObject();
 
-        return ok(listVitals.render(vitalMap, viewModelGet));
+        return ok(listVitals.render(vitalMap, viewModelGet, assetsFinder));
     }
 
     /**
@@ -555,21 +546,8 @@ public class MedicalController extends Controller {
             if (viewModel.getHeightFeet() == null) {
                 newVitals.put("heightFeet", 0f);
             }
-
-            Float heightInches;
-            Float heightFeet;
-
-            if(viewModel.getHeightInches() > 11 && !isMetric()) {
-                heightFeet = (float)(viewModel.getHeightInches()/12);
-                heightInches =(float)(viewModel.getHeightInches() % 12);
-                newVitals.put("heightFeet", heightFeet);
-                newVitals.put("heightInches", heightInches);
-            }
-
-            else {
-                heightInches = viewModel.getHeightInches().floatValue();
-                newVitals.put("heightInches", heightInches);
-            }
+            Float heightInches = viewModel.getHeightInches().floatValue();
+            newVitals.put("heightInches", heightInches);
         }
 
         //Alaa Serhan
@@ -611,15 +589,6 @@ public class MedicalController extends Controller {
         
 
         return newVitals;
-    }
-
-
-    private boolean isMetric() {
-        ExpressionList<SystemSetting> query = QueryProvider.getSystemSettingQuery()
-                .where()
-                .eq("name", "Metric System Option");
-        ISystemSetting isMetric = systemSettingRepository.findOne(query);
-        return isMetric.isActive();
     }
 
     /*

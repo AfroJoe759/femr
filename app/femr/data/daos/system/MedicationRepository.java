@@ -1,7 +1,7 @@
 package femr.data.daos.system;
-import com.avaje.ebean.Ebean;
-import com.avaje.ebean.ExpressionList;
-import com.avaje.ebean.Query;
+import io.ebean.Ebean;
+import io.ebean.ExpressionList;
+import io.ebean.Query;
 import com.google.inject.Inject;
 import femr.business.helpers.QueryProvider;
 import femr.data.IDataModelMapper;
@@ -9,6 +9,7 @@ import femr.data.daos.core.IMedicationRepository;
 import femr.data.models.core.*;
 import femr.data.models.mysql.Medication;
 import femr.data.models.mysql.MedicationGeneric;
+import femr.data.models.mysql.MedicationInventory;
 import femr.data.models.mysql.concepts.ConceptMedicationForm;
 import femr.data.models.mysql.concepts.ConceptMedicationUnit;
 import femr.util.stringhelpers.StringUtils;
@@ -39,7 +40,7 @@ public class MedicationRepository implements IMedicationRepository {
                                 .where()
                                 .eq("name", unitName);
 
-            medicationUnit = medicationMeasurementUnitExpressionList.findUnique();
+            medicationUnit = medicationMeasurementUnitExpressionList.findOne();
         }catch (Exception ex) {
             Logger.error("MedicationRepository-retrieveMedicationUnitByUnitName", ex.getMessage(), "unitName: " + unitName);
             throw ex;
@@ -63,12 +64,63 @@ public class MedicationRepository implements IMedicationRepository {
                 .where()
                 .eq("name", genericName);
 
-            medicationGeneric = medicationActiveDrugNameExpressionList.findUnique();
+            medicationGeneric = medicationActiveDrugNameExpressionList.findOne();
         } catch(Exception ex){
             Logger.error("MedicationRepository-retrieveMedicationGenericByName", ex.getMessage(), "genericName: " + genericName);
             throw ex;
         }
         return medicationGeneric;
+    }
+
+    /**
+     * {@inheritDoc}
+     */
+    @Override
+    public IMedicationInventory retrieveMedicationInventoryByMedicationIdAndTripId(int medicationId, int tripId) {
+
+        IMedicationInventory medicationInventory = null;
+        try {
+
+            ExpressionList<MedicationInventory> medicationInventoryExpressionList;
+            medicationInventoryExpressionList = QueryProvider.getMedicationInventoryQuery()
+                    .where()
+                    .eq("missionTrip.id", tripId)
+                    .eq("medication.id", medicationId);
+
+            medicationInventory = medicationInventoryExpressionList.findOne();
+        } catch(Exception ex) {
+            Logger.error("MedicationRepository-retrieveMedicationInventoryByMedicationIdAndTripId", ex.getMessage(), "medicationId: " + medicationId + "tripId: " + tripId);
+            throw ex;
+        }
+        return medicationInventory;
+    }
+
+    /**
+     * {@inheritDoc}
+     */
+    @Override
+    public List<? extends IMedicationInventory> retrieveMedicationInventoriesByTripId(int tripId, Boolean isDeleted) {
+
+        List<? extends IMedicationInventory> response;
+        //Querying based on the trip id.  Each trip will have its own inventory.
+        ExpressionList<MedicationInventory> medicationInventoryExpressionList = QueryProvider.getMedicationInventoryQuery()
+                .where()
+                .eq("missionTrip.id", tripId);
+
+        if (!isDeleted) {
+
+            //does this work?
+            medicationInventoryExpressionList.eq("isDeleted", null);
+        }
+
+        try {
+            response = medicationInventoryExpressionList.findList();
+        } catch (Exception ex) {
+            Logger.error("MedicationRepository-retrieveMedicationInventoriesByTripId", ex.getMessage(), "trip id: " + tripId );
+            throw ex;
+        }
+
+        return response;
     }
 
     /**
@@ -85,7 +137,7 @@ public class MedicationRepository implements IMedicationRepository {
                 .where()
                 .eq("name", formName);
         try {
-            conceptMedicationForm = medicationFormExpressionList.findUnique();
+            conceptMedicationForm = medicationFormExpressionList.findOne();
         } catch(Exception ex){
             Logger.error("MedicationRepository-retrieveConceptMedicationFormByFormName", ex.getMessage(), "formName: " + formName);
             throw ex;
@@ -127,7 +179,7 @@ public class MedicationRepository implements IMedicationRepository {
                 .where()
                 .eq("id", medicationId);
 
-        IMedication medication = medicationQuery.findUnique();
+        IMedication medication = medicationQuery.findOne();
         medication.setIsDeleted(isDeleted);
         try {
             Ebean.save(medication);
@@ -216,6 +268,24 @@ public class MedicationRepository implements IMedicationRepository {
         }
 
         return response;
+    }
+
+    /**
+     * {@inheritDoc}
+     */
+    @Override
+    public IMedicationInventory saveMedicationInventory(IMedicationInventory medicationInventory) {
+
+        try {
+
+            Ebean.save(medicationInventory);
+        } catch (Exception ex) {
+
+            Logger.error("MedicationRepository-saveMedicationInventory", ex.getMessage());
+            throw ex;
+        }
+
+        return medicationInventory;
     }
 
 }
